@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Planner</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="codec.js"></script>
+<style>
+  /* Every color is a Telegram theme variable. The fallbacks are for a plain browser, light or dark. */
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --card: var(--tg-theme-secondary-bg-color, #f1f1f4);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #70757a);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --bad: var(--tg-theme-destructive-text-color, #d14e4e);
+    --sep: var(--tg-theme-section-separator-color, #e0e0e0);
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: var(--tg-theme-bg-color, #17212b);
+      --card: var(--tg-theme-secondary-bg-color, #232e3c);
+      --text: var(--tg-theme-text-color, #f5f5f5);
+      --hint: var(--tg-theme-hint-color, #8b98a5);
+      --accent: var(--tg-theme-button-color, #5288c1);
+      --accent-text: var(--tg-theme-button-text-color, #ffffff);
+      --bad: var(--tg-theme-destructive-text-color, #ec3942);
+      --sep: var(--tg-theme-section-separator-color, #2f3b48);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: calc(12px + var(--tg-content-safe-area-inset-top, 0px)) 16px calc(16px + var(--tg-safe-area-inset-bottom, 0px));
+    -webkit-text-size-adjust: 100%;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:disabled { opacity: .35; cursor: default; }
+  h1 { font-size: 20px; margin: 4px 0 12px; font-weight: 600; }
+  .empty { color: var(--hint); margin-top: 40vh; text-align: center; }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .event { display: flex; gap: 10px; min-height: 44px; align-items: center; padding: 0 4px; color: var(--hint);
+           border-bottom: 1px solid var(--sep); }
+  .event .tm { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .card { background: var(--card); border-radius: 12px; padding: 4px 8px 8px; }
+  .card.off .dim { opacity: .45; }
+  .row { display: flex; align-items: center; gap: 4px; min-height: 44px; }
+  .times { min-height: 44px; padding: 0 6px; font-weight: 600; font-variant-numeric: tabular-nums; flex: 1; text-align: start; }
+  .title { display: block; width: 100%; min-height: 44px; padding: 4px 6px; text-align: start; overflow-wrap: anywhere; }
+  .icon { width: 44px; height: 44px; border-radius: 10px; font-size: 16px; color: var(--hint); flex: none; }
+  .icon.del { color: var(--bad); }
+  .switch { width: 52px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .switch span { width: 42px; height: 26px; border-radius: 13px; background: var(--sep); position: relative; transition: background .15s; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+                        background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+  .switch[aria-checked="true"] span { background: var(--accent); }
+  .switch[aria-checked="true"] span::after { transform: translateX(16px); }
+  .edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 6px; }
+  .edit input { min-height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--sep); background: var(--bg); }
+  .edit input.text { flex: 1; min-width: 0; width: 100%; }
+  .why { color: var(--bad); font-size: 14px; padding: 0 6px 2px; }
+  .add { display: flex; gap: 8px; margin-top: 16px; }
+  .add input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--sep);
+               background: var(--card); }
+  .btn { min-height: 44px; padding: 0 16px; border-radius: 10px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .note { color: var(--bad); font-size: 14px; margin-top: 8px; min-height: 1px; }
+  .small { color: var(--hint); font-size: 13px; margin-top: 20px; }
+  .small p { margin: 4px 0; }
+  .dayhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; }
+  .dayhead h1 { margin: 0; text-align: center; flex: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .chip { min-height: 44px; padding: 0 14px; border-radius: 22px; background: var(--card); }
+  .chip.on { background: var(--accent); color: var(--accent-text); }
+  .step { display: flex; align-items: center; gap: 8px; background: var(--card); border-radius: 12px; padding: 0 4px; margin-bottom: 8px; }
+  .step .lbl { flex: 1; text-align: center; font-variant-numeric: tabular-nums; }
+  .step .unset { color: var(--hint); }
+  .step .icon { color: var(--accent); font-size: 22px; }
+  .main { position: sticky; bottom: calc(8px + var(--tg-safe-area-inset-bottom, 0px)); width: 100%; margin-top: 16px; min-height: 48px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border-radius: 10px; padding: 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+(function () {
+  const C = window.FocusCodec;
+  const app = document.getElementById("app");
+  const SEND_MAX = 4096;
+  const SMALL = "If your Mac is asleep, this is applied when it wakes. Telegram holds it for 24 hours.";
+  const NOTHING = "Nothing to show. Open this from the button in your Focus chat.";
+
+  // Telegram's object, or a stand-in when its script didn't load at all
+  const TG = (window.Telegram && window.Telegram.WebApp) ||
+    { platform: "unknown", version: "0", ready() {}, expand() {}, sendData() {}, themeParams: {} };
+  const outside = TG.platform === "unknown";
+
+  // ---- building elements: text always goes in through text nodes
+  function el(tag, props, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v === undefined || v === null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else if (k in n && typeof v !== "string") n[k] = v;
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) {
+      if (kid === null || kid === undefined || kid === false) continue;
+      n.append(typeof kid === "string" ? document.createTextNode(kid) : kid);
+    }
+    return n;
+  }
+
+  function smallPrint(extra) {
+    return el("div", { class: "small" }, el("p", null, SMALL), extra ? el("p", null, extra) : null);
+  }
+
+  // ---- the main button: Telegram's, or an ordinary one at the bottom in a plain browser
+  let mainHandler = null, mainEl = null, preEl = null;
+  function main(text, active) {
+    if (outside) {
+      if (!mainEl) {
+        mainEl = el("button", { class: "btn main", onclick: () => mainHandler && mainHandler() });
+        preEl = el("pre", { hidden: true });
+        document.body.append(mainEl, preEl);
+      }
+      mainEl.textContent = text;
+      mainEl.disabled = !active;
+      return;
+    }
+    const tp = TG.themeParams || {};
+    const params = { text, is_active: !!active, is_visible: true };
+    const color = active ? tp.button_color : tp.hint_color;
+    if (color) params.color = color;
+    if (tp.button_text_color) params.text_color = tp.button_text_color;
+    TG.MainButton.setParams(params);
+  }
+  function onMain(fn) {
+    mainHandler = fn;
+  }
+  if (!outside && TG.MainButton) TG.MainButton.onClick(() => mainHandler && mainHandler());
+
+  // every send goes through here: nothing over Telegram's 4096 bytes leaves, and nothing throws
+  let noteEl = null;
+  function say(text) {
+    if (noteEl) noteEl.textContent = text;
+  }
+  function send(out) {
+    say("");
+    if (C.byteLen(out) > SEND_MAX) {
+      say("Too much to send. Shorten some titles.");
+      return;
+    }
+    if (outside) {
+      preEl.hidden = false;
+      preEl.textContent = out;
+      return;
+    }
+    try { TG.sendData(out); } catch (e) { say("Telegram didn't take it. Close this and open it again."); }
+  }
+
+  // a time input holds 00:00–23:59, so the end of the day shows as 23:59 (it rounds back to 24:00)
+  const tv = (m) => C.fmt(Math.min(m, 1439));
+  const round5 = (m) => Math.round(m / 5) * 5;
+
+  let confirmOn = false;
+  function changed() {
+    if (confirmOn) return;
+    confirmOn = true;
+    if (!outside && TG.enableClosingConfirmation && (!TG.isVersionAtLeast || TG.isVersionAtLeast("6.2"))) TG.enableClosingConfirmation();
+  }
+
+  // ---- the plan screen (t: "p")
+  function planScreen(p) {
+    const st = C.planState(p);
+    let editing = null; // { b: the block, what: "time" | "title" }
+    const whyEls = new Map(); // block -> its problem line
+    const list = el("div", { class: "list" });
+    const note = el("div", { class: "note", role: "status" });
+    const addInput = el("input", { type: "text", maxlength: "80", placeholder: "Add a task", dir: "auto", enterkeyhint: "done",
+                                   "aria-label": "Add a task", onkeydown: (e) => { if (e.key === "Enter") addTask(); } });
+
+    function act(fn) {
+      note.textContent = "";
+      if (fn()) changed();
+      render();
+    }
+
+    function addTask() {
+      const title = addInput.value.trim();
+      if (!title) return;
+      if (C.add(st, title)) {
+        addInput.value = "";
+        note.textContent = "";
+        changed();
+        render();
+      } else {
+        note.textContent = "No free 30 minutes. Shorten a block or switch one off.";
+      }
+    }
+
+    function card(b, k, why) {
+      const n = st.blocks.length;
+      const isEditing = (what) => editing && editing.b === b && editing.what === what;
+      let timePart, titlePart;
+      if (isEditing("time")) {
+        const a = el("input", { type: "time", step: "300", value: tv(b.start), "aria-label": "Start" });
+        const z = el("input", { type: "time", step: "300", value: tv(b.end), "aria-label": "End" });
+        // updated in place, so moving from start to end keeps focus; the list is redrawn on Done
+        const apply = () => {
+          const s0 = C.parseTime(a.value), e0 = C.parseTime(z.value);
+          const s = s0 === null ? b.start : round5(s0), e = e0 === null ? b.end : round5(e0); // empty means unchanged
+          if (a.value && a.value !== tv(s)) a.value = tv(s);
+          if (z.value && z.value !== tv(e)) z.value = tv(e);
+          if (s === b.start && e === b.end) return;
+          C.setTime(st, st.blocks.indexOf(b), s, e);
+          note.textContent = "";
+          changed();
+          refresh();
+        };
+        a.addEventListener("change", apply);
+        z.addEventListener("change", apply);
+        timePart = el("div", { class: "edit" }, a, "–", z, el("button", { class: "btn", onclick: () => { editing = null; render(); } }, "Done"));
+      } else {
+        timePart = el("button", { class: "times dim", onclick: () => { editing = { b, what: "time" }; render(); } },
+                      `${C.fmt(b.start)} – ${C.fmt(b.end)}`);
+      }
+      if (isEditing("title")) {
+        const t = el("input", { type: "text", class: "text", maxlength: "80", value: b.title, dir: "auto", "aria-label": "Title", enterkeyhint: "done" });
+        const close = () => { if (editing && editing.b === b) { editing = null; render(); } };
+        t.addEventListener("input", () => { C.setTitle(st, st.blocks.indexOf(b), t.value); changed(); refresh(); });
+        t.addEventListener("keydown", (e) => { if (e.key === "Enter") close(); });
+        t.addEventListener("blur", close);
+        titlePart = el("div", { class: "edit" }, t);
+        setTimeout(() => t.focus(), 0);
+      } else {
+        titlePart = el("button", { class: "title dim", dir: "auto", onclick: () => { editing = { b, what: "title" }; render(); } },
+                       b.title || "Untitled");
+      }
+      const top = el("div", { class: "row" },
+        el("button", { class: "switch", role: "switch", "aria-checked": String(b.on), "aria-label": b.on ? "On" : "Off",
+                       onclick: () => act(() => C.toggle(st, st.blocks.indexOf(b))) }, el("span")),
+        isEditing("time") ? null : timePart,
+        el("button", { class: "icon", "aria-label": "Earlier", disabled: k === 0, onclick: () => act(() => C.swap(st, st.blocks.indexOf(b), -1)) }, "▲"),
+        el("button", { class: "icon", "aria-label": "Later", disabled: k === n - 1, onclick: () => act(() => C.swap(st, st.blocks.indexOf(b), 1)) }, "▼"),
+        el("button", { class: "icon del", "aria-label": "Delete", onclick: () => act(() => { if (editing && editing.b === b) editing = null; return C.remove(st, st.blocks.indexOf(b)); }) }, "✕"));
+      const whyEl = el("div", { class: "why" }, why || "");
+      whyEl.hidden = !why;
+      whyEls.set(b, whyEl);
+      return el("div", { class: "card" + (b.on ? "" : " off") },
+        top, isEditing("time") ? timePart : null, titlePart, whyEl);
+    }
+
+    function updateMain() {
+      const on = st.blocks.filter((b) => b.on).length;
+      main(on ? `Put ${on} on my calendar` : "Save with nothing added", C.problems(st).length === 0);
+    }
+
+    // problems and the main button, without redrawing the list
+    function refresh() {
+      const why = new Map(C.problems(st).map((pr) => [st.blocks[pr.k], pr.why]));
+      for (const [b, w] of whyEls) {
+        w.textContent = why.get(b) || "";
+        w.hidden = !why.has(b);
+      }
+      updateMain();
+    }
+
+    function render() {
+      whyEls.clear();
+      const why = {};
+      for (const pr of C.problems(st)) why[pr.k] = pr.why;
+      const rows = st.cal.map((e) => ({ start: e.start, cal: e }))
+        .concat(st.blocks.map((b, k) => ({ start: b.start, b, k })))
+        .sort((x, y) => x.start - y.start || (x.cal ? -1 : 1) - (y.cal ? -1 : 1));
+      list.replaceChildren(...rows.map((r) => r.cal
+        ? el("div", { class: "event" }, el("span", { class: "tm" }, `${C.fmt(r.cal.start)} – ${C.fmt(r.cal.end)}`),
+             el("span", { dir: "auto" }, r.cal.title))
+        : card(r.b, r.k, why[r.k])));
+      updateMain();
+    }
+
+    onMain(() => {
+      if (C.problems(st).length) return;
+      send(C.planOut(st));
+    });
+    noteEl = note;
+
+    app.replaceChildren(
+      el("h1", { dir: "auto" }, String(st.head || "")),
+      list,
+      el("div", { class: "add" }, addInput, el("button", { class: "btn", onclick: addTask }, "Add")),
+      note,
+      smallPrint(st.trim > 0 ? "Calendar titles are shortened here." : null));
+    render();
+  }
+
+  // ---- the benchmark screen (t: "b")
+  function benchScreen(p) {
+    const st = C.benchState(p);
+    if (!st.days.length) return nothing();
+    let at = st.days.indexOf(st.day);
+    if (at < 0) at = st.days.length - 1; // the opened day isn't in the payload: open on the last one
+    const body = el("div");
+    const head = el("h1");
+    const prev = el("button", { class: "icon", "aria-label": "Earlier day", onclick: () => { at--; render(); } }, "◀");
+    const next = el("button", { class: "icon", "aria-label": "Later day", onclick: () => { at++; render(); } }, "▶");
+
+    function set(day, key, value) {
+      if (!Object.prototype.hasOwnProperty.call(st.vals, day)) return; // never a day the payload didn't bring
+      if (st.vals[day][key] === value) return; // no change, no write
+      C.benchSet(st, day, key, value);
+      changed();
+      render();
+    }
+
+    function render() {
+      const day = st.days[at], vals = st.vals[day];
+      head.textContent = C.dayLabel(day);
+      prev.disabled = at <= 0;
+      next.disabled = at >= st.days.length - 1;
+      const checks = st.items.filter((it) => it.type === "c");
+      const steps = st.items.filter((it) => it.type !== "c");
+      body.replaceChildren(...[
+        checks.length ? el("div", { class: "chips" }, checks.map((it) => {
+          const on = vals[it.key] === 1;
+          return el("button", { class: "chip" + (on ? " on" : ""), role: "switch", "aria-checked": String(on),
+                                onclick: () => set(day, it.key, on ? 0 : 1) }, `${on ? "✓" : "○"} ${it.label}`);
+        })) : null,
+        ...steps.map((it) => {
+          const v = vals[it.key], minutes = it.type === "m";
+          const amount = v === null ? el("span", { class: "unset" }, "not set")
+            : minutes ? `${v} min` : it.max ? `${v} / ${it.max}` : String(v);
+          const up = C.benchStep(it.type, v, true, it.max);
+          return el("div", { class: "step" },
+            // "not set" stays not set: − on it writes nothing
+            el("button", { class: "icon", "aria-label": `Less ${it.label}`, disabled: v === null || v === 0,
+                           onclick: () => set(day, it.key, C.benchStep(it.type, v, false, it.max)) }, "−"),
+            el("span", { class: "lbl" }, `${it.label} `, amount),
+            el("button", { class: "icon", "aria-label": `More ${it.label}`, disabled: v !== null && up <= v,
+                           onclick: () => set(day, it.key, up) }, "＋"));
+        })].filter(Boolean));
+      main("Save", C.benchOut(st) !== null);
+    }
+
+    onMain(() => {
+      const out = C.benchOut(st);
+      if (out !== null) send(out);
+    });
+    noteEl = el("div", { class: "note", role: "status" });
+    app.replaceChildren(el("div", { class: "dayhead" }, prev, head, next), body, noteEl, smallPrint());
+    render();
+  }
+
+  // ---- the test screen (t: "x")
+  function testScreen(d) {
+    const n = C.byteLen(d);
+    const where = C.readParam(location.hash, "") !== null ? "fragment" : "query";
+    noteEl = el("div", { class: "note", role: "status" });
+    app.replaceChildren(el("h1", null, "Test"),
+      el("p", null, `Received ${n} bytes in the ${where}. Telegram ${TG.version} on ${TG.platform}.`), noteEl);
+    onMain(() => send(JSON.stringify({ t: "x", n })));
+    main("Send it back", true);
+  }
+
+  function nothing() {
+    mainHandler = null;
+    app.replaceChildren(el("p", { class: "empty" }, NOTHING));
+    if (mainEl) mainEl.hidden = true;
+    if (!outside && TG.MainButton) TG.MainButton.hide();
+  }
+
+  // ---- start
+  try { TG.ready(); TG.expand(); } catch (e) { /* a plain browser */ }
+  const d = C ? C.readParam(location.hash, location.search) : null;
+  let p = null;
+  try { p = d ? C.unpack(d) : null; } catch (e) { p = null; }
+  if (!p) nothing();
+  else {
+    try {
+      if (p.t === "p" && Array.isArray(p.w)) planScreen(p);
+      else if (p.t === "b") benchScreen(p);
+      else if (p.t === "x") testScreen(d);
+      else nothing();
+    } catch (e) {
+      nothing(); // decodable but not a payload this page understands
+    }
+  }
+})();
+</script>
+</body>
+</html>
