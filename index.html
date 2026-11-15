@@ -49,6 +49,8 @@
   .event { display: flex; gap: 10px; min-height: 44px; align-items: center; padding: 0 4px; color: var(--hint);
            border-bottom: 1px solid var(--sep); }
   .event .tm { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .event .evt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .event.gone .tm, .event.gone .evt { text-decoration: line-through; opacity: .6; }
   .card { background: var(--card); border-radius: 12px; padding: 4px 8px 8px; }
   .card.off .dim { opacity: .45; }
   .row { display: flex; align-items: center; gap: 4px; min-height: 44px; }
@@ -82,6 +84,7 @@
   .step .lbl { flex: 1; text-align: center; font-variant-numeric: tabular-nums; }
   .step .unset { color: var(--hint); }
   .step .icon { color: var(--accent); font-size: 22px; }
+  .step .icon.small-step { font-size: 15px; width: 40px; }
   .main { position: sticky; bottom: calc(8px + var(--tg-safe-area-inset-bottom, 0px)); width: 100%; margin-top: 16px; min-height: 48px; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border-radius: 10px; padding: 10px; font-size: 13px; }
 </style>
@@ -260,8 +263,10 @@
     }
 
     function updateMain() {
-      const on = st.blocks.filter((b) => b.on).length;
-      main(on ? `Put ${on} on my calendar` : "Save with nothing added", C.problems(st).length === 0);
+      const on = st.blocks.filter((b) => b.on).length, m = st.cal.filter((e) => e.gone).length;
+      const text = on && m ? `Put ${on} on my calendar, delete ${m}` : m ? `Delete ${m} event${m > 1 ? "s" : ""}`
+        : on ? `Put ${on} on my calendar` : "Save with nothing added";
+      main(text, C.problems(st).length === 0);
     }
 
     // problems and the main button, without redrawing the list
@@ -282,8 +287,11 @@
         .concat(st.blocks.map((b, k) => ({ start: b.start, b, k })))
         .sort((x, y) => x.start - y.start || (x.cal ? -1 : 1) - (y.cal ? -1 : 1));
       list.replaceChildren(...rows.map((r) => r.cal
-        ? el("div", { class: "event" }, el("span", { class: "tm" }, `${C.fmt(r.cal.start)} – ${C.fmt(r.cal.end)}`),
-             el("span", { dir: "auto" }, r.cal.title))
+        ? el("div", { class: "event" + (r.cal.gone ? " gone" : "") },
+             el("span", { class: "tm" }, `${C.fmt(r.cal.start)} – ${C.fmt(r.cal.end)}`),
+             el("span", { class: "evt", dir: "auto" }, r.cal.title || "Calendar event"),
+             el("button", { class: r.cal.gone ? "icon" : "icon del", "aria-label": r.cal.gone ? "Keep event" : "Delete event",
+                            onclick: () => act(() => C.toggleCal(st, r.cal.k)) }, r.cal.gone ? "↩" : "✕"))
         : card(r.b, r.k, why[r.k])));
       updateMain();
     }
@@ -322,6 +330,22 @@
       render();
     }
 
+    // phone time on top of Focus's wasted minutes: starts at 0, goes up or down, the total never below 0
+    function wastedRow(day) {
+      const w = st.wasted[day];
+      if (w === null || w === undefined) return null;
+      const adj = st.adj[day];
+      const by = (n) => () => { if (C.benchAdj(st, day, n)) { changed(); render(); } };
+      const can = (n) => { const t = Math.min(Math.max(adj + n, -w), 600); return t !== adj; };
+      const btn = (n, text) => el("button", { class: "icon small-step", "aria-label": `${n < 0 ? "Less" : "More"} wasted time, ${Math.abs(n)} min`,
+                                              disabled: !can(n), onclick: by(n) }, text);
+      return el("div", { class: "step" },
+        btn(-30, "−30"), btn(-5, "−5"),
+        el("span", { class: "lbl" }, `Wasted ${w + adj} min`,
+           adj ? el("span", { class: "unset" }, ` (phone ${adj > 0 ? "+" : "−"}${Math.abs(adj)})`) : null),
+        btn(5, "+5"), btn(30, "+30"));
+    }
+
     function render() {
       const day = st.days[at], vals = st.vals[day];
       head.textContent = C.dayLabel(day);
@@ -347,7 +371,8 @@
             el("span", { class: "lbl" }, `${it.label} `, amount),
             el("button", { class: "icon", "aria-label": `More ${it.label}`, disabled: v !== null && up <= v,
                            onclick: () => set(day, it.key, up) }, "＋"));
-        })].filter(Boolean));
+        }),
+        wastedRow(day)].filter(Boolean));
       main("Save", C.benchOut(st) !== null);
     }
 

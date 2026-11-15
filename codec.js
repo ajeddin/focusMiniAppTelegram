@@ -71,7 +71,7 @@
   function planState(p) {
     const st = {
       day: p.d, head: p.h, rev: p.r, win: p.w, trim: p.x || 0,
-      cal: (p.e || []).map(([start, end, title]) => ({ start, end, title })),
+      cal: (p.e || []).map(([start, end, title], k) => ({ k, start, end, title, gone: false })),
       blocks: (p.b || []).map(([start, end, title, on], i) => ({ i, start, end, title, title0: title, on: !!on })),
       dirty: false,
     };
@@ -99,6 +99,15 @@
     st.blocks[k].on = !st.blocks[k].on;
     return _changed(st);
   }
+
+  // a calendar event marked for deletion (or kept again): it stops blocking and is sent back under x
+  function toggleCal(st, k) {
+    st.cal[k].gone = !st.cal[k].gone;
+    st.dirty = true;
+    return true;
+  }
+
+  const _live = (st) => st.cal.filter((e) => !e.gone);
 
   function remove(st, k) {
     st.blocks.splice(k, 1);
@@ -132,7 +141,7 @@
 
   function add(st, title, minutes = 30) {
     if (st.blocks.length >= PLAN_MAX) return false;
-    const busy = st.cal.concat(st.blocks).map((b) => [b.start, b.end]);
+    const busy = _live(st).concat(st.blocks).map((b) => [b.start, b.end]);
     const g = firstGap(busy, minutes, st.win[0], st.win[1]);
     if (!g) return false;
     st.blocks.push({ i: -1, start: g[0], end: g[1], title, title0: null, on: true });
@@ -150,7 +159,7 @@
       else if (b.end - b.start < 5) why = "Shorter than 5 minutes";
       else {
         const earlier = st.blocks.slice(0, k).filter((x) => x.on);
-        const hit = _hit(b.start, b.end, st.cal.concat(earlier).map((x) => [x.start, x.end, x.title]));
+        const hit = _hit(b.start, b.end, _live(st).concat(earlier).map((x) => [x.start, x.end, x.title]));
         if (hit) why = hit[2] ? `Overlaps “${hit[2]}”` : "Overlaps a calendar event";
       }
       if (why) out.push({ k, why });
@@ -164,19 +173,32 @@
       if (x.i === -1 || x.title !== x.title0) row.push(x.title);
       return row;
     });
-    return JSON.stringify({ t: "p", d: st.day, r: st.rev, b });
+    const x = st.cal.filter((e) => e.gone).map((e) => [e.start, e.end, e.title]);
+    return JSON.stringify(x.length ? { t: "p", d: st.day, r: st.rev, b, x } : { t: "p", d: st.day, r: st.rev, b });
   }
 
   // ---- the benchmark
   function benchState(p) {
     const items = (p.i || []).map(([key, label, type, max]) => ({ key, label, type, max }));
-    const vals = {}, orig = {};
-    for (const [day, row] of p.v || []) {
+    const vals = {}, orig = {}, wasted = {}, adj = {};
+    for (const [day, row, w] of p.v || []) {
       vals[day] = {};
       orig[day] = {};
       items.forEach((it, n) => { vals[day][it.key] = orig[day][it.key] = row[n] === undefined ? null : row[n]; });
+      wasted[day] = typeof w === "number" ? w : null; // null: the day's wasted time can't be changed here
+      adj[day] = 0;
     }
-    return { day: p.d, items, days: (p.v || []).map((r) => r[0]), vals, orig };
+    return { day: p.d, items, days: (p.v || []).map((r) => r[0]), vals, orig, wasted, adj };
+  }
+
+  // phone minutes on top of the day's wasted time: never below 0 in all, at most 600 added
+  function benchAdj(st, day, by) {
+    const w = st.wasted[day];
+    if (w === null || w === undefined) return false;
+    const next = Math.min(Math.max(st.adj[day] + by, -w), 600);
+    if (next === st.adj[day]) return false;
+    st.adj[day] = next;
+    return true;
   }
 
   function benchSet(st, day, key, value) {
@@ -199,13 +221,16 @@
         if (st.vals[day][it.key] !== st.orig[day][it.key]) (v[day] = v[day] || {})[it.key] = st.vals[day][it.key];
       }
     }
-    return Object.keys(v).length ? JSON.stringify({ t: "b", v }) : null;
+    const a = {};
+    for (const day of st.days) if (st.adj && st.adj[day]) a[day] = st.adj[day];
+    if (!Object.keys(v).length && !Object.keys(a).length) return null;
+    return JSON.stringify(Object.keys(a).length ? { t: "b", v, a } : { t: "b", v });
   }
 
   const FocusCodec = {
     pack, unpack, readParam, byteLen, fmt, parseTime, dayLabel,
-    planState, setTime, setTitle, toggle, remove, swap, firstGap, add, problems, planOut,
-    benchState, benchSet, benchStep, benchOut,
+    planState, setTime, setTitle, toggle, toggleCal, remove, swap, firstGap, add, problems, planOut,
+    benchState, benchSet, benchStep, benchAdj, benchOut,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = FocusCodec;
   else root.FocusCodec = FocusCodec;
