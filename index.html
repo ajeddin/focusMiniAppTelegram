@@ -172,7 +172,6 @@
 
   // a time input holds 00:00–23:59, so the end of the day shows as 23:59 (it rounds back to 24:00)
   const tv = (m) => C.fmt(Math.min(m, 1439));
-  const round5 = (m) => Math.round(m / 5) * 5;
 
   let confirmOn = false;
   function changed() {
@@ -218,11 +217,11 @@
         const a = el("input", { type: "time", step: "300", value: tv(b.start), "aria-label": "Start" });
         const z = el("input", { type: "time", step: "300", value: tv(b.end), "aria-label": "End" });
         // updated in place, so moving from start to end keeps focus; the list is redrawn on Done
-        const apply = () => {
-          const s0 = C.parseTime(a.value), e0 = C.parseTime(z.value);
-          const s = s0 === null ? b.start : round5(s0), e = e0 === null ? b.end : round5(e0); // empty means unchanged
-          if (a.value && a.value !== tv(s)) a.value = tv(s);
-          if (z.value && z.value !== tv(e)) z.value = tv(e);
+        const apply = (ev) => {
+          const which = ev.target === a ? "start" : "end";   // only the end you changed moves (and is rounded to 5)
+          const [s, e] = C.editTime(b.start, b.end, which, C.parseTime(ev.target.value)); // empty means unchanged
+          if (which === "start" && a.value && a.value !== tv(s)) a.value = tv(s);
+          if (which === "end" && z.value && z.value !== tv(e)) z.value = tv(e);
           if (s === b.start && e === b.end) return;
           C.setTime(st, st.blocks.indexOf(b), s, e);
           note.textContent = "";
@@ -238,11 +237,19 @@
       }
       if (isEditing("title")) {
         const t = el("input", { type: "text", class: "text", maxlength: "80", value: b.title, dir: "auto", "aria-label": "Title", enterkeyhint: "done" });
-        const close = () => { if (editing && editing.b === b) { editing = null; render(); } };
+        // closing swaps just this input back to the title button, so whatever you tapped next is still there to get the tap
+        const titleBtn = () => el("button", { class: "title dim", dir: "auto", onclick: () => { editing = { b, what: "title" }; render(); } },
+                                  b.title || "Untitled");
+        const close = () => {
+          if (!(editing && editing.b === b && editing.what === "title")) return;
+          editing = null;
+          if (box.isConnected) box.replaceWith(titleBtn());
+        };
         t.addEventListener("input", () => { C.setTitle(st, st.blocks.indexOf(b), t.value); changed(); refresh(); });
-        t.addEventListener("keydown", (e) => { if (e.key === "Enter") close(); });
+        t.addEventListener("keydown", (e) => { if (e.key === "Enter") t.blur(); });
         t.addEventListener("blur", close);
-        titlePart = el("div", { class: "edit" }, t);
+        const box = el("div", { class: "edit" }, t);
+        titlePart = box;
         setTimeout(() => t.focus(), 0);
       } else {
         titlePart = el("button", { class: "title dim", dir: "auto", onclick: () => { editing = { b, what: "title" }; render(); } },

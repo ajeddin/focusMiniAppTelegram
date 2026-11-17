@@ -91,6 +91,13 @@
     return _changed(st);
   }
 
+  // a time input changed: only that end is rounded to 5 minutes; the other is kept exactly (10:07 stays 10:07)
+  function editTime(start, end, which, value) {
+    if (value === null || value === undefined) return [start, end];
+    const v = Math.round(value / 5) * 5;
+    return which === "start" ? [v, end] : [start, v];
+  }
+
   function setTitle(st, k, title) {
     st.blocks[k].title = title;
     return _changed(st);
@@ -231,7 +238,7 @@
 
   const FocusCodec = {
     pack, unpack, readParam, byteLen, fmt, parseTime, dayLabel,
-    planState, setTime, setTitle, toggle, toggleCal, remove, swap, firstGap, add, problems, planOut,
+    planState, setTime, editTime, setTitle, toggle, toggleCal, remove, swap, firstGap, add, problems, planOut,
     benchState, benchSet, benchStep, benchAdj, benchOut,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = FocusCodec;
