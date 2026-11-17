@@ -73,6 +73,7 @@
       day: p.d, head: p.h, rev: p.r, win: p.w, trim: p.x || 0,
       cal: (p.e || []).map(([start, end, title], k) => ({ k, start, end, title, gone: false })),
       blocks: (p.b || []).map(([start, end, title, on], i) => ({ i, start, end, title, title0: title, on: !!on })),
+      prayers: (p.p || []).map(([start, end, title]) => ({ start, end, title })),   // busy, never deleted; older pages: none
       dirty: false,
     };
     _sort(st);
@@ -108,6 +109,7 @@
   }
 
   const _live = (st) => st.cal.filter((e) => !e.gone);
+  const _busy = (st) => _live(st).concat(st.prayers || []);   // calendar events you keep, and prayer times
 
   function remove(st, k) {
     st.blocks.splice(k, 1);
@@ -141,7 +143,7 @@
 
   function add(st, title, minutes = 30) {
     if (st.blocks.length >= PLAN_MAX) return false;
-    const busy = _live(st).concat(st.blocks).map((b) => [b.start, b.end]);
+    const busy = _busy(st).concat(st.blocks).map((b) => [b.start, b.end]);
     const g = firstGap(busy, minutes, st.win[0], st.win[1]);
     if (!g) return false;
     st.blocks.push({ i: -1, start: g[0], end: g[1], title, title0: null, on: true });
@@ -159,7 +161,7 @@
       else if (b.end - b.start < 5) why = "Shorter than 5 minutes";
       else {
         const earlier = st.blocks.slice(0, k).filter((x) => x.on);
-        const hit = _hit(b.start, b.end, _live(st).concat(earlier).map((x) => [x.start, x.end, x.title]));
+        const hit = _hit(b.start, b.end, _busy(st).concat(earlier).map((x) => [x.start, x.end, x.title]));
         if (hit) why = hit[2] ? `Overlaps “${hit[2]}”` : "Overlaps a calendar event";
       }
       if (why) out.push({ k, why });

@@ -284,9 +284,14 @@
       const why = {};
       for (const pr of C.problems(st)) why[pr.k] = pr.why;
       const rows = st.cal.map((e) => ({ start: e.start, cal: e }))
+        .concat((st.prayers || []).map((p) => ({ start: p.start, pr: p })))
         .concat(st.blocks.map((b, k) => ({ start: b.start, b, k })))
-        .sort((x, y) => x.start - y.start || (x.cal ? -1 : 1) - (y.cal ? -1 : 1));
-      list.replaceChildren(...rows.map((r) => r.cal
+        .sort((x, y) => x.start - y.start || (x.b ? 1 : -1) - (y.b ? 1 : -1));
+      list.replaceChildren(...rows.map((r) => r.pr
+        ? el("div", { class: "event prayer" },   // a prayer time: busy, nothing to delete
+             el("span", { class: "tm" }, `${C.fmt(r.pr.start)} – ${C.fmt(r.pr.end)}`),
+             el("span", { class: "evt", dir: "auto" }, r.pr.title))
+        : r.cal
         ? el("div", { class: "event" + (r.cal.gone ? " gone" : "") },
              el("span", { class: "tm" }, `${C.fmt(r.cal.start)} – ${C.fmt(r.cal.end)}`),
              el("span", { class: "evt", dir: "auto" }, r.cal.title || "Calendar event"),
