@@ -138,16 +138,19 @@
   }
 
   // today, a block that ended before the planning window (which starts at now) is done: it stays in your day, not in the list
-  function taskState(p) {
+  // nowMin: the phone's minute of the day when the page shows today (else undefined). A block that has started is done
+  // or under way: it stays where it is and is no task. Without nowMin, one that ended before the window counts.
+  function taskState(p, nowMin) {
     const b = p.b || [];
     const today = /^Today\b/.test(String(p.h || "")), from = (p.w || [0])[0];
+    const begun = (t) => today && (typeof nowMin === "number" ? t.start <= nowMin : t.end <= from);
     return {
       day: p.d, head: p.h, rev: p.r, trim: p.x || 0,
       cal: (p.e || []).map(([start, end, title], k) => ({ k, start, end, title, gone: false })),
       prayers: (p.p || []).map(([start, end, title]) => ({ start, end, title })),
       sched: b.map(([start, end, title, on]) => [start, end, title, !!on]),
-      tasks: b.map(([start, end, title, on], i) => ({ i, title, min: Math.min(end - start, 480), on, end }))
-        .filter((t) => t.on && !(today && t.end <= from))
+      tasks: b.map(([start, end, title, on], i) => ({ i, title, min: Math.min(end - start, 480), on, start, end }))
+        .filter((t) => t.on && !begun(t))
         .map(({ i, title, min }) => ({ i, title, min })),
       note: "", dirty: false,
     };
@@ -189,8 +192,10 @@
     return true;
   }
 
-  function replanOut(st) {
+  // ai false: no assistant; the blocks keep their times and new tasks go in the first free gaps
+  function replanOut(st, ai = true) {
     const o = { t: "q", d: st.day, r: st.rev, k: st.tasks.map((x) => [x.i, x.title, x.min]) };
+    if (!ai) o.a = 0;
     if (st.note.trim()) o.n = st.note;
     const x = st.cal.filter((e) => e.gone).map((e) => [e.start, e.end, e.title]);
     if (x.length) o.x = x;

@@ -69,6 +69,7 @@
   .add { display: flex; gap: 8px; margin-top: 12px; }
   .add input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--sep);
                background: var(--card); }
+  .btn.plain { width: 100%; margin-top: 12px; background: var(--card); color: var(--accent); }
   .btn { min-height: 44px; padding: 0 16px; border-radius: 10px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
   .ask { display: block; width: 100%; margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--sep);
          background: var(--card); resize: vertical; min-height: 72px; }
@@ -186,7 +187,9 @@
 
   // ---- the plan screen (t: "p"): list what to do, the AI picks the times
   function planScreen(p) {
-    const st = C.taskState(p);
+    const now = new Date(), pad = (n) => String(n).padStart(2, "0");
+    const isoNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const st = C.taskState(p, isoNow === p.d ? now.getHours() * 60 + now.getMinutes() : undefined);
     const ps = C.planState(p);    // the plan as it is, sent untouched when only calendar events are marked
     let editing = -1;             // the task whose title is open for typing
     let closeEdit = null;         // writes the open title back; the main button calls it first
@@ -291,6 +294,7 @@
 
     function updateMain() {
       const m = st.cal.filter((e) => e.gone).length;
+      plainBtn.hidden = !((st.dirty || typing) && (st.tasks.length > 0 || m > 0));
       if (st.dirty || typing) {
         main("Re-plan my day", st.tasks.length > 0 || m > 0);
         return;
@@ -309,6 +313,13 @@
         : [el("p", { class: "hint" }, "Nothing to do yet. Add what you want to get done today.")]));
       updateMain();
     }
+
+    // without the AI: the blocks keep their times, new tasks go in the first free gaps
+    const plainBtn = el("button", { class: "btn plain", hidden: true, onclick: () => {
+      if (closeEdit) closeEdit();
+      if (!st.tasks.length && !st.cal.some((e) => e.gone)) return;
+      send(C.replanOut(st, false));
+    } }, "Just fit them in (no AI)");
 
     onMain(() => {
       if (closeEdit) closeEdit();   // a title still being typed counts
@@ -333,7 +344,9 @@
       el("div", { class: "add" }, addInput, el("button", { class: "btn", onclick: addTask }, "Add")),
       note,
       noteInput,
-      smallPrint("The AI picks the times. You'll get them in the chat." + (st.trim > 0 ? " Calendar titles are shortened here." : "")));
+      plainBtn,
+      smallPrint("Re-plan: the AI picks the times. No AI: your blocks stay put and new ones go in the first free time. "
+                 + "You'll get the times in the chat." + (st.trim > 0 ? " Calendar titles are shortened here." : "")));
     render();
   }
 
