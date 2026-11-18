@@ -64,10 +64,6 @@
   }
 
   // ---- the plan
-  function _sort(st) {
-    st.blocks.sort((a, b) => a.start - b.start);
-  }
-
   function planState(p) {
     const st = {
       day: p.d, head: p.h, rev: p.r, win: p.w, trim: p.x || 0,
@@ -76,36 +72,8 @@
       prayers: (p.p || []).map(([start, end, title]) => ({ start, end, title })),   // busy, never deleted; older pages: none
       dirty: false,
     };
-    _sort(st);
+    st.blocks.sort((a, b) => a.start - b.start);
     return st;
-  }
-
-  function _changed(st) {
-    _sort(st);
-    st.dirty = true;
-    return true;
-  }
-
-  function setTime(st, k, start, end) {
-    Object.assign(st.blocks[k], { start, end });
-    return _changed(st);
-  }
-
-  // a time input changed: only that end is rounded to 5 minutes; the other is kept exactly (10:07 stays 10:07)
-  function editTime(start, end, which, value) {
-    if (value === null || value === undefined) return [start, end];
-    const v = Math.round(value / 5) * 5;
-    return which === "start" ? [v, end] : [start, v];
-  }
-
-  function setTitle(st, k, title) {
-    st.blocks[k].title = title;
-    return _changed(st);
-  }
-
-  function toggle(st, k) {
-    st.blocks[k].on = !st.blocks[k].on;
-    return _changed(st);
   }
 
   // a calendar event marked for deletion (or kept again): it stops blocking and is sent back under x
@@ -117,22 +85,6 @@
 
   const _live = (st) => st.cal.filter((e) => !e.gone);
   const _busy = (st) => _live(st).concat(st.prayers || []);   // calendar events you keep, and prayer times
-
-  function remove(st, k) {
-    st.blocks.splice(k, 1);
-    return _changed(st);
-  }
-
-  // block k trades places with its neighbour: the earlier start is kept and the second follows the first
-  function swap(st, k, dir) {
-    const j = k + dir;
-    if (j < 0 || j >= st.blocks.length || j === k) return false;
-    const first = st.blocks[Math.max(k, j)], second = st.blocks[Math.min(k, j)];
-    const s = Math.min(first.start, second.start), len1 = first.end - first.start, len2 = second.end - second.start;
-    Object.assign(first, { start: s, end: s + len1 });
-    Object.assign(second, { start: s + len1, end: s + len1 + len2 });
-    return _changed(st);
-  }
 
   function _hit(s, e, busy) {
     return busy.find((b) => s < b[1] && b[0] < e) || null;
@@ -148,34 +100,6 @@
     return null;
   }
 
-  function add(st, title, minutes = 30) {
-    if (st.blocks.length >= PLAN_MAX) return false;
-    const busy = _busy(st).concat(st.blocks).map((b) => [b.start, b.end]);
-    const g = firstGap(busy, minutes, st.win[0], st.win[1]);
-    if (!g) return false;
-    st.blocks.push({ i: -1, start: g[0], end: g[1], title, title0: null, on: true });
-    return _changed(st);
-  }
-
-  // what stops a save, one reason per block that is on
-  function problems(st) {
-    const out = [];
-    st.blocks.forEach((b, k) => {
-      if (!b.on) return;
-      let why = null;
-      if (b.end < b.start) why = "Ends before it starts";
-      else if (!String(b.title || "").trim()) why = "Needs a title";
-      else if (b.end - b.start < 5) why = "Shorter than 5 minutes";
-      else {
-        const earlier = st.blocks.slice(0, k).filter((x) => x.on);
-        const hit = _hit(b.start, b.end, _busy(st).concat(earlier).map((x) => [x.start, x.end, x.title]));
-        if (hit) why = hit[2] ? `Overlaps “${hit[2]}”` : "Overlaps a calendar event";
-      }
-      if (why) out.push({ k, why });
-    });
-    return out;
-  }
-
   function planOut(st) {
     const b = st.blocks.map((x) => {
       const row = [x.i, x.start, x.end, x.on ? 1 : 0];
@@ -184,6 +108,93 @@
     });
     const x = st.cal.filter((e) => e.gone).map((e) => [e.start, e.end, e.title]);
     return JSON.stringify(x.length ? { t: "p", d: st.day, r: st.rev, b, x } : { t: "p", d: st.day, r: st.rev, b });
+  }
+
+  // ---- the task list (the re-plan screen)
+  const LENS = [0, 15, 30, 45, 60, 90, 120];   // 0 = Auto: the AI picks
+
+  function nextLen(min) {
+    const n = LENS.find((x) => x > min);
+    return n === undefined ? 0 : n;
+  }
+
+  function _clean(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/\s+/g, " ").trim().slice(0, 80).trim();
+  }
+
+  const _five = (m) => Math.min(480, Math.max(5, Math.round(m / 5) * 5));
+
+  // "gym 45m", "hw 1.5h", "read 2 hours", "sleep 1h30", "hw 2h 30m", "1 h 15 min": a trailing length is peeled off the title
+  function parseTask(text) {
+    let t = String(text === null || text === undefined ? "" : text).trim(), min = 0, r;
+    if ((r = /(?:^|\s)(\d+(?:\.\d+)?)\s*(?:h|hrs?|hours?)(?:\s*(\d{1,2})(?:\s*(?:m|mins?|minutes?))?)?$/i.exec(t))) {
+      min = _five(parseFloat(r[1]) * 60 + (r[2] ? +r[2] : 0));
+    } else if ((r = /(?:^|\s)(\d+)\s*(?:m|mins?|minutes?)$/i.exec(t))) {
+      min = _five(+r[1]);
+    }
+    if (r) t = t.slice(0, r.index);
+    t = _clean(t);
+    return t ? { title: t, min } : null;
+  }
+
+  // today, a block that ended before the planning window (which starts at now) is done: it stays in your day, not in the list
+  function taskState(p) {
+    const b = p.b || [];
+    const today = /^Today\b/.test(String(p.h || "")), from = (p.w || [0])[0];
+    return {
+      day: p.d, head: p.h, rev: p.r, trim: p.x || 0,
+      cal: (p.e || []).map(([start, end, title], k) => ({ k, start, end, title, gone: false })),
+      prayers: (p.p || []).map(([start, end, title]) => ({ start, end, title })),
+      sched: b.map(([start, end, title, on]) => [start, end, title, !!on]),
+      tasks: b.map(([start, end, title, on], i) => ({ i, title, min: Math.min(end - start, 480), on, end }))
+        .filter((t) => t.on && !(today && t.end <= from))
+        .map(({ i, title, min }) => ({ i, title, min })),
+      note: "", dirty: false,
+    };
+  }
+
+  function taskAdd(st, text) {
+    const t = parseTask(text);
+    if (!t || st.tasks.length >= PLAN_MAX) return false;
+    st.tasks.push({ i: -1, title: t.title, min: t.min });
+    st.dirty = true;
+    return true;
+  }
+
+  function taskRemove(st, n) {
+    if (!st.tasks[n]) return false;
+    st.tasks.splice(n, 1);
+    st.dirty = true;
+    return true;
+  }
+
+  function taskRename(st, n, title) {
+    const t = _clean(title);
+    if (!st.tasks[n] || !t || t === st.tasks[n].title) return false;   // the same title is no change
+    st.tasks[n].title = t;
+    st.dirty = true;
+    return true;
+  }
+
+  function taskLen(st, n) {
+    if (!st.tasks[n]) return false;
+    st.tasks[n].min = nextLen(st.tasks[n].min);
+    st.dirty = true;
+    return true;
+  }
+
+  function setNote(st, s) {
+    st.note = String(s || "").slice(0, 300);
+    st.dirty = true;
+    return true;
+  }
+
+  function replanOut(st) {
+    const o = { t: "q", d: st.day, r: st.rev, k: st.tasks.map((x) => [x.i, x.title, x.min]) };
+    if (st.note.trim()) o.n = st.note;
+    const x = st.cal.filter((e) => e.gone).map((e) => [e.start, e.end, e.title]);
+    if (x.length) o.x = x;
+    return JSON.stringify(o);
   }
 
   // ---- the benchmark
@@ -238,7 +249,8 @@
 
   const FocusCodec = {
     pack, unpack, readParam, byteLen, fmt, parseTime, dayLabel,
-    planState, setTime, editTime, setTitle, toggle, toggleCal, remove, swap, firstGap, add, problems, planOut,
+    planState, toggleCal, firstGap, planOut,
+    LENS, nextLen, parseTask, taskState, taskAdd, taskRemove, taskRename, taskLen, setNote, replanOut,
     benchState, benchSet, benchStep, benchAdj, benchOut,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = FocusCodec;

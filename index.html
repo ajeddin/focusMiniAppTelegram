@@ -40,7 +40,7 @@
     padding: calc(12px + var(--tg-content-safe-area-inset-top, 0px)) 16px calc(16px + var(--tg-safe-area-inset-bottom, 0px));
     -webkit-text-size-adjust: 100%;
   }
-  button, input { font: inherit; color: inherit; }
+  button, input, textarea { font: inherit; color: inherit; }
   button { background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   button:disabled { opacity: .35; cursor: default; }
   h1 { font-size: 20px; margin: 4px 0 12px; font-weight: 600; }
@@ -52,26 +52,26 @@
   .event .evt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .event.gone .tm, .event.gone .evt { text-decoration: line-through; opacity: .6; }
   .card { background: var(--card); border-radius: 12px; padding: 4px 8px 8px; }
-  .card.off .dim { opacity: .45; }
-  .row { display: flex; align-items: center; gap: 4px; min-height: 44px; }
-  .times { min-height: 44px; padding: 0 6px; font-weight: 600; font-variant-numeric: tabular-nums; flex: 1; text-align: start; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); margin: 20px 4px 6px; }
+  .event.plan { color: var(--text); }
+  .hint { color: var(--hint); margin: 4px; }
+  .card.task { display: flex; align-items: center; gap: 4px; padding: 0 0 0 4px; min-height: 52px; }
+  .card.task .title, .card.task .edit { flex: 1; min-width: 0; width: auto; }
+  .len { min-height: 44px; min-width: 64px; padding: 0 12px; border-radius: 22px; flex: none; white-space: nowrap;
+         background: var(--bg); font-variant-numeric: tabular-nums; font-size: 15px; }
+  .len.auto { color: var(--hint); }
   .title { display: block; width: 100%; min-height: 44px; padding: 4px 6px; text-align: start; overflow-wrap: anywhere; }
   .icon { width: 44px; height: 44px; border-radius: 10px; font-size: 16px; color: var(--hint); flex: none; }
   .icon.del { color: var(--bad); }
-  .switch { width: 52px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; }
-  .switch span { width: 42px; height: 26px; border-radius: 13px; background: var(--sep); position: relative; transition: background .15s; }
-  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
-                        background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
-  .switch[aria-checked="true"] span { background: var(--accent); }
-  .switch[aria-checked="true"] span::after { transform: translateX(16px); }
   .edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 6px; }
   .edit input { min-height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--sep); background: var(--bg); }
   .edit input.text { flex: 1; min-width: 0; width: 100%; }
-  .why { color: var(--bad); font-size: 14px; padding: 0 6px 2px; }
-  .add { display: flex; gap: 8px; margin-top: 16px; }
+  .add { display: flex; gap: 8px; margin-top: 12px; }
   .add input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--sep);
                background: var(--card); }
   .btn { min-height: 44px; padding: 0 16px; border-radius: 10px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .ask { display: block; width: 100%; margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--sep);
+         background: var(--card); resize: vertical; min-height: 72px; }
   .note { color: var(--bad); font-size: 14px; margin-top: 8px; min-height: 1px; }
   .small { color: var(--hint); font-size: 13px; margin-top: 20px; }
   .small p { margin: 4px 0; }
@@ -170,9 +170,6 @@
     try { TG.sendData(out); } catch (e) { say("Telegram didn't take it. Close this and open it again."); }
   }
 
-  // a time input holds 00:00–23:59, so the end of the day shows as 23:59 (it rounds back to 24:00)
-  const tv = (m) => C.fmt(Math.min(m, 1439));
-
   let confirmOn = false;
   function changed() {
     if (confirmOn) return;
@@ -180,15 +177,29 @@
     if (!outside && TG.enableClosingConfirmation && (!TG.isVersionAtLeast || TG.isVersionAtLeast("6.2"))) TG.enableClosingConfirmation();
   }
 
-  // ---- the plan screen (t: "p")
+  // a task's length chip: 0 is Auto (the AI picks), else 15m, 1h, 1h 30m
+  function lenLabel(min) {
+    if (!min) return "Auto";
+    const h = Math.floor(min / 60), m = min % 60;
+    return h && m ? `${h}h ${m}m` : h ? `${h}h` : `${m}m`;
+  }
+
+  // ---- the plan screen (t: "p"): list what to do, the AI picks the times
   function planScreen(p) {
-    const st = C.planState(p);
-    let editing = null; // { b: the block, what: "time" | "title" }
-    const whyEls = new Map(); // block -> its problem line
-    const list = el("div", { class: "list" });
+    const st = C.taskState(p);
+    const ps = C.planState(p);    // the plan as it is, sent untouched when only calendar events are marked
+    let editing = -1;             // the task whose title is open for typing
+    let closeEdit = null;         // writes the open title back; the main button calls it first
+    let typing = false;           // the open title differs from the saved one
+    const day = el("div", { class: "list" });
+    const todo = el("div", { class: "list" });
     const note = el("div", { class: "note", role: "status" });
-    const addInput = el("input", { type: "text", maxlength: "80", placeholder: "Add a task", dir: "auto", enterkeyhint: "done",
-                                   "aria-label": "Add a task", onkeydown: (e) => { if (e.key === "Enter") addTask(); } });
+    const addInput = el("input", { type: "text", maxlength: "90", placeholder: "Add a task — e.g. gym 45m", dir: "auto",
+                                   enterkeyhint: "done", "aria-label": "Add a task",
+                                   onkeydown: (e) => { if (e.key === "Enter") addTask(); } });
+    const noteInput = el("textarea", { class: "ask", maxlength: "300", rows: "3", dir: "auto", "aria-label": "Note for the AI",
+                                       placeholder: "Anything the AI should know? e.g. gym after 5, hardest first" });
+    noteInput.addEventListener("input", () => { C.setNote(st, noteInput.value); changed(); updateMain(); });
 
     function act(fn) {
       note.textContent = "";
@@ -197,129 +208,132 @@
     }
 
     function addTask() {
-      const title = addInput.value.trim();
-      if (!title) return;
-      if (C.add(st, title)) {
+      const text = addInput.value;
+      if (!text.trim()) return;
+      if (C.taskAdd(st, text)) {
         addInput.value = "";
         note.textContent = "";
         changed();
         render();
-      } else {
-        note.textContent = "No free 30 minutes. Shorten a block or switch one off.";
+      } else if (C.parseTask(text)) {
+        note.textContent = "That's 16 already.";
       }
     }
 
-    function card(b, k, why) {
-      const n = st.blocks.length;
-      const isEditing = (what) => editing && editing.b === b && editing.what === what;
-      let timePart, titlePart;
-      if (isEditing("time")) {
-        const a = el("input", { type: "time", step: "300", value: tv(b.start), "aria-label": "Start" });
-        const z = el("input", { type: "time", step: "300", value: tv(b.end), "aria-label": "End" });
-        // updated in place, so moving from start to end keeps focus; the list is redrawn on Done
-        const apply = (ev) => {
-          const which = ev.target === a ? "start" : "end";   // only the end you changed moves (and is rounded to 5)
-          const [s, e] = C.editTime(b.start, b.end, which, C.parseTime(ev.target.value)); // empty means unchanged
-          if (which === "start" && a.value && a.value !== tv(s)) a.value = tv(s);
-          if (which === "end" && z.value && z.value !== tv(e)) z.value = tv(e);
-          if (s === b.start && e === b.end) return;
-          C.setTime(st, st.blocks.indexOf(b), s, e);
-          note.textContent = "";
-          changed();
-          refresh();
-        };
-        a.addEventListener("change", apply);
-        z.addEventListener("change", apply);
-        timePart = el("div", { class: "edit" }, a, "–", z, el("button", { class: "btn", onclick: () => { editing = null; render(); } }, "Done"));
-      } else {
-        timePart = el("button", { class: "times dim", onclick: () => { editing = { b, what: "time" }; render(); } },
-                      `${C.fmt(b.start)} – ${C.fmt(b.end)}`);
-      }
-      if (isEditing("title")) {
-        const t = el("input", { type: "text", class: "text", maxlength: "80", value: b.title, dir: "auto", "aria-label": "Title", enterkeyhint: "done" });
-        // closing swaps just this input back to the title button, so whatever you tapped next is still there to get the tap
-        const titleBtn = () => el("button", { class: "title dim", dir: "auto", onclick: () => { editing = { b, what: "title" }; render(); } },
-                                  b.title || "Untitled");
+    // a ✕ on a calendar event alone is not a re-plan: it still goes back as the plan you have
+    function markCal(k) {
+      const dirty = st.dirty;
+      C.toggleCal(st, k);
+      st.dirty = dirty;
+      return true;
+    }
+
+    const tm = (s, e) => el("span", { class: "tm" }, `${C.fmt(s)} – ${C.fmt(e)}`);
+
+    function renderDay() {
+      const rows = st.cal.map((e) => ({ start: e.start, cal: e }))
+        .concat((st.prayers || []).map((x) => ({ start: x.start, pr: x })))
+        .concat(st.sched.filter((b) => b[3]).map((b) => ({ start: b[0], b })))
+        .sort((x, y) => x.start - y.start);
+      day.replaceChildren(...(rows.length ? rows.map((r) => r.cal
+        ? el("div", { class: "event" + (r.cal.gone ? " gone" : "") },
+             tm(r.cal.start, r.cal.end),
+             el("span", { class: "evt", dir: "auto" }, r.cal.title || "Calendar event"),
+             el("button", { class: r.cal.gone ? "icon" : "icon del", "aria-label": r.cal.gone ? "Keep event" : "Delete event",
+                            onclick: () => act(() => markCal(r.cal.k)) }, r.cal.gone ? "↩" : "✕"))
+        : r.pr
+        ? el("div", { class: "event" }, tm(r.pr.start, r.pr.end), el("span", { class: "evt", dir: "auto" }, r.pr.title))
+        : el("div", { class: "event plan" }, tm(r.b[0], r.b[1]), el("span", { class: "evt", dir: "auto" }, r.b[2] || "Untitled")))
+        : [el("div", { class: "event" }, el("span", { class: "evt" }, "Nothing on your calendar yet."))]));
+    }
+
+    function titleButton(n) {
+      return el("button", { class: "title", dir: "auto", onclick: () => { editing = n; render(); } }, st.tasks[n].title);
+    }
+
+    function card(t, n) {
+      let titlePart;
+      if (editing === n) {
+        const inp = el("input", { type: "text", class: "text", maxlength: "80", value: t.title, dir: "auto",
+                                  "aria-label": "Task", enterkeyhint: "done" });
+        // closing swaps just this input back to the title button, so whatever you tapped next still gets the tap
         const close = () => {
-          if (!(editing && editing.b === b && editing.what === "title")) return;
-          editing = null;
-          if (box.isConnected) box.replaceWith(titleBtn());
+          if (editing !== n) return;
+          editing = -1;
+          closeEdit = null;
+          typing = false;
+          if (C.taskRename(st, n, inp.value)) changed();
+          updateMain();
+          if (box.isConnected) box.replaceWith(titleButton(n));
         };
-        t.addEventListener("input", () => { C.setTitle(st, st.blocks.indexOf(b), t.value); changed(); refresh(); });
-        t.addEventListener("keydown", (e) => { if (e.key === "Enter") t.blur(); });
-        t.addEventListener("blur", close);
-        const box = el("div", { class: "edit" }, t);
+        closeEdit = close;
+        // Telegram's main button may not blur the input, so the label follows the typing
+        inp.addEventListener("input", () => {
+          const t = inp.value.replace(/\s+/g, " ").trim();
+          typing = t !== "" && t !== st.tasks[n].title;
+          updateMain();
+        });
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+        inp.addEventListener("blur", close);
+        const box = el("div", { class: "edit" }, inp);
         titlePart = box;
-        setTimeout(() => t.focus(), 0);
+        setTimeout(() => inp.focus(), 0);
       } else {
-        titlePart = el("button", { class: "title dim", dir: "auto", onclick: () => { editing = { b, what: "title" }; render(); } },
-                       b.title || "Untitled");
+        titlePart = titleButton(n);
       }
-      const top = el("div", { class: "row" },
-        el("button", { class: "switch", role: "switch", "aria-checked": String(b.on), "aria-label": b.on ? "On" : "Off",
-                       onclick: () => act(() => C.toggle(st, st.blocks.indexOf(b))) }, el("span")),
-        isEditing("time") ? null : timePart,
-        el("button", { class: "icon", "aria-label": "Earlier", disabled: k === 0, onclick: () => act(() => C.swap(st, st.blocks.indexOf(b), -1)) }, "▲"),
-        el("button", { class: "icon", "aria-label": "Later", disabled: k === n - 1, onclick: () => act(() => C.swap(st, st.blocks.indexOf(b), 1)) }, "▼"),
-        el("button", { class: "icon del", "aria-label": "Delete", onclick: () => act(() => { if (editing && editing.b === b) editing = null; return C.remove(st, st.blocks.indexOf(b)); }) }, "✕"));
-      const whyEl = el("div", { class: "why" }, why || "");
-      whyEl.hidden = !why;
-      whyEls.set(b, whyEl);
-      return el("div", { class: "card" + (b.on ? "" : " off") },
-        top, isEditing("time") ? timePart : null, titlePart, whyEl);
+      return el("div", { class: "card task" },
+        titlePart,
+        el("button", { class: "len" + (t.min ? "" : " auto"), "aria-label": `Length ${lenLabel(t.min)}, tap to change`,
+                       onclick: () => act(() => C.taskLen(st, n)) }, lenLabel(t.min)),
+        el("button", { class: "icon del", "aria-label": "Remove task",
+                       onclick: () => act(() => { editing = -1; return C.taskRemove(st, n); }) }, "✕"));
     }
 
     function updateMain() {
-      const on = st.blocks.filter((b) => b.on).length, m = st.cal.filter((e) => e.gone).length;
+      const m = st.cal.filter((e) => e.gone).length;
+      if (st.dirty || typing) {
+        main("Re-plan my day", st.tasks.length > 0 || m > 0);
+        return;
+      }
+      const on = ps.blocks.filter((b) => b.on).length;
       const text = on && m ? `Put ${on} on my calendar, delete ${m}` : m ? `Delete ${m} event${m > 1 ? "s" : ""}`
         : on ? `Put ${on} on my calendar` : "Save with nothing added";
-      main(text, C.problems(st).length === 0);
-    }
-
-    // problems and the main button, without redrawing the list
-    function refresh() {
-      const why = new Map(C.problems(st).map((pr) => [st.blocks[pr.k], pr.why]));
-      for (const [b, w] of whyEls) {
-        w.textContent = why.get(b) || "";
-        w.hidden = !why.has(b);
-      }
-      updateMain();
+      main(text, on > 0 || m > 0);
     }
 
     function render() {
-      whyEls.clear();
-      const why = {};
-      for (const pr of C.problems(st)) why[pr.k] = pr.why;
-      const rows = st.cal.map((e) => ({ start: e.start, cal: e }))
-        .concat((st.prayers || []).map((p) => ({ start: p.start, pr: p })))
-        .concat(st.blocks.map((b, k) => ({ start: b.start, b, k })))
-        .sort((x, y) => x.start - y.start || (x.b ? 1 : -1) - (y.b ? 1 : -1));
-      list.replaceChildren(...rows.map((r) => r.pr
-        ? el("div", { class: "event prayer" },   // a prayer time: busy, nothing to delete
-             el("span", { class: "tm" }, `${C.fmt(r.pr.start)} – ${C.fmt(r.pr.end)}`),
-             el("span", { class: "evt", dir: "auto" }, r.pr.title))
-        : r.cal
-        ? el("div", { class: "event" + (r.cal.gone ? " gone" : "") },
-             el("span", { class: "tm" }, `${C.fmt(r.cal.start)} – ${C.fmt(r.cal.end)}`),
-             el("span", { class: "evt", dir: "auto" }, r.cal.title || "Calendar event"),
-             el("button", { class: r.cal.gone ? "icon" : "icon del", "aria-label": r.cal.gone ? "Keep event" : "Delete event",
-                            onclick: () => act(() => C.toggleCal(st, r.cal.k)) }, r.cal.gone ? "↩" : "✕"))
-        : card(r.b, r.k, why[r.k])));
+      closeEdit = null;
+      typing = false;
+      renderDay();
+      todo.replaceChildren(...(st.tasks.length ? st.tasks.map(card)
+        : [el("p", { class: "hint" }, "Nothing to do yet. Add what you want to get done today.")]));
       updateMain();
     }
 
     onMain(() => {
-      if (C.problems(st).length) return;
-      send(C.planOut(st));
+      if (closeEdit) closeEdit();   // a title still being typed counts
+      const m = st.cal.filter((e) => e.gone).length;
+      if (st.dirty) {
+        if (!st.tasks.length && !m) return;
+        send(C.replanOut(st));
+        return;
+      }
+      for (const e of ps.cal) e.gone = st.cal[e.k].gone;   // the same events, by k
+      if (!ps.blocks.some((b) => b.on) && !m) return;
+      send(C.planOut(ps));
     });
     noteEl = note;
 
     app.replaceChildren(
       el("h1", { dir: "auto" }, String(st.head || "")),
-      list,
+      el("h2", null, "Your day"),
+      day,
+      el("h2", null, "To do"),
+      todo,
       el("div", { class: "add" }, addInput, el("button", { class: "btn", onclick: addTask }, "Add")),
       note,
-      smallPrint(st.trim > 0 ? "Calendar titles are shortened here." : null));
+      noteInput,
+      smallPrint("The AI picks the times. You'll get them in the chat." + (st.trim > 0 ? " Calendar titles are shortened here." : "")));
     render();
   }
 
