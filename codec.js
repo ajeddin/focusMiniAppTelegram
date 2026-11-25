@@ -231,8 +231,15 @@
     return true;
   }
 
-  // bench_step in server.py: minutes by 5 up to 600, counts by 1 up to max (999 when 0)
-  function benchStep(type, value, up, max) {
+  // bench_step in server.py: minutes by 5 up to 600, counts by 1 up to max (999 when 0),
+  // pages by a quarter (or by `by`, e.g. 1, keeping the quarters) up to max (604 when 0)
+  function benchStep(type, value, up, max, by) {
+    if (type === "p" || type === "pages") {
+      const top = max || 604, v0 = value || 0, n = by || 0.25;
+      const v = n >= 1 ? Math.round(v0 * 4) / 4 + (up ? n : -n)
+        : up ? (Math.floor(v0 / n) + 1) * n : (Math.ceil(v0 / n) - 1) * n;
+      return Math.min(Math.max(v, 0), top);
+    }
     const minutes = type === "m" || type === "minutes";
     const n = minutes ? 5 : 1, top = minutes ? 600 : max || 999, v0 = value || 0;
     const v = up ? (Math.floor(v0 / n) + 1) * n : (Math.ceil(v0 / n) - 1) * n;

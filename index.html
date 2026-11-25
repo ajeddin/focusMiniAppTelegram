@@ -385,6 +385,21 @@
         btn(5, "+5"), btn(30, "+30"));
     }
 
+    // pages (hifz): a quarter page or a whole page at a time
+    function pagesRow(day, it, v) {
+      const btn = (up, by, text) => {
+        const to = C.benchStep(it.type, v, up, it.max, by);
+        return el("button", { class: "icon small-step", "aria-label": `${up ? "More" : "Less"} ${it.label}, ${by === 1 ? "1 page" : "a quarter page"}`,
+                              disabled: up ? v !== null && to <= v : v === null || v === 0 || to >= v,
+                              onclick: () => set(day, it.key, to) }, text);
+      };
+      const amount = v === null ? el("span", { class: "unset" }, "not set") : `${v} ${v === 1 ? "page" : "pages"}`;
+      return el("div", { class: "step" },
+        btn(false, 1, "−1"), btn(false, 0.25, "−¼"),
+        el("span", { class: "lbl" }, `${it.label} `, amount),
+        btn(true, 0.25, "+¼"), btn(true, 1, "+1"));
+    }
+
     function render() {
       const day = st.days[at], vals = st.vals[day];
       head.textContent = C.dayLabel(day);
@@ -400,6 +415,7 @@
         })) : null,
         ...steps.map((it) => {
           const v = vals[it.key], minutes = it.type === "m";
+          if (it.type === "p") return pagesRow(day, it, v);
           const amount = v === null ? el("span", { class: "unset" }, "not set")
             : minutes ? `${v} min` : it.max ? `${v} / ${it.max}` : String(v);
           const up = C.benchStep(it.type, v, true, it.max);
